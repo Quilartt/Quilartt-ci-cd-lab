@@ -1,0 +1,50 @@
+name: Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint HTML
+        run: npx --yes htmlhint index.html
+      - name: Build image
+        run: docker build -t my-app:ci .
+      - name: Run container
+        run: docker run -d -p 8080:80 --name test-app my-app:ci
+      - name: Smoke test container
+        run: |
+          sleep 3
+          curl -s http://localhost:8080 | grep -q "Факира" || (echo "Smoke test failed" && exit 1)
+          echo "Smoke test container OK"
+
+  release:
+    runs-on: ubuntu-latest
+    needs: ci
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase repository name
+        run: echo "REPO_LC=${GITHUB_REPOSITORY,,}" >> $GITHUB_ENV
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ env.REPO_LC }}:latest
